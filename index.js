@@ -21,6 +21,7 @@ wss.on('connection', (ws) => {
                 // Leave previous room if any
                 if (currentRoom && rooms.has(currentRoom)) {
                     rooms.get(currentRoom).delete(ws);
+                    broadcastRoomInfo(currentRoom); // Update old room
                 }
 
                 currentRoom = roomId;
@@ -29,6 +30,8 @@ wss.on('connection', (ws) => {
                 }
                 rooms.get(roomId).add(ws);
                 console.log(`Client joined room ${roomId}. Total in room: ${rooms.get(roomId).size}`);
+
+                broadcastRoomInfo(roomId); // Update new room
             } else {
                 // Broadcast to room
                 if (currentRoom && rooms.has(currentRoom)) {
@@ -49,8 +52,26 @@ wss.on('connection', (ws) => {
             rooms.get(currentRoom).delete(ws);
             if (rooms.get(currentRoom).size === 0) {
                 rooms.delete(currentRoom);
+            } else {
+                broadcastRoomInfo(currentRoom); // Update room
             }
             console.log(`Client left room ${currentRoom}`);
         }
     });
 });
+
+function broadcastRoomInfo(roomId) {
+    if (!rooms.has(roomId)) return;
+
+    const count = rooms.get(roomId).size;
+    const message = JSON.stringify({
+        type: 'room_info',
+        count: count
+    });
+
+    rooms.get(roomId).forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(message);
+        }
+    });
+}
