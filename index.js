@@ -2,21 +2,55 @@ const WebSocket = require('ws');
 const port = process.env.PORT || 8080;
 const wss = new WebSocket.Server({ port: port });
 
+const rooms = new Map(); // roomId -> Set<ws>
+
 console.log(`Relay server started on port ${port}`);
 
 wss.on('connection', (ws) => {
-  console.log('Client connected');
+    let currentRoom = null;
 
-  ws.on('message', (message, isBinary) => {
-    // Broadcast to everyone else
-    wss.clients.forEach((client) => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(message, { binary: isBinary });
-      }
+    ws.on('message', (messageRaw) => {
+        try {
+            const message = messageRaw.toString();
+            const data = JSON.parse(message);
+
+            if (data.type === 'join_room') {
+                const roomId = data.roomId;
+                if (!roomId) return;
+
+                // Leave previous room if any
+                if (currentRoom && rooms.has(currentRoom)) {
+                    rooms.get(currentRoom).delete(ws);
+                }
+
+                currentRoom = roomId;
+                if (!rooms.has(roomId)) {
+                    rooms.set(roomId, new Set());
+                }
+                rooms.get(roomId).add(ws);
+                console.log(`Client joined room ${roomId}. Total in room: ${rooms.get(roomId).size}`);
+            } else {
+                // Broadcast to room
+                if (currentRoom && rooms.has(currentRoom)) {
+                    rooms.get(currentRoom).forEach(client => {
+                        if (client !== ws && client.readyState === WebSocket.OPEN) {
+                            client.send(messageRaw);
+                        }
+                    });
+                }
+            }
+        } catch (e) {
+            console.error('Error processing message:', e);
+        }
     });
-  });
 
-  ws.on('close', () => {
-    console.log('Client disconnected');
-  });
+    ws.on('close', () => {
+        if (currentRoom && rooms.has(currentRoom)) {
+            rooms.get(currentRoom).delete(ws);
+            if (rooms.get(currentRoom).size === 0) {
+                rooms.delete(currentRoom);
+            }
+            console.log(`Client left room ${currentRoom}`);
+        }
+    });
 });
